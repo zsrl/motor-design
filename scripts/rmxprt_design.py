@@ -32,6 +32,7 @@ class RMxprtDesigner:
         self.design = design
         self.app = None
         self.design_params = {}
+        self.setup_params = {}
         
     def initialize(self, timestamp: Optional[str] = None):
         """初始化RMxprt应用
@@ -118,6 +119,13 @@ class RMxprtDesigner:
             # 应用电路参数
             if "Circuit" in self.design_params:
                 self._apply_component_parameters(self.app.circuit, self.design_params["Circuit"], "Circuit")
+            
+            # 应用Setup参数（保存到实例变量中，供create_setup使用）
+            if "Setup" in self.design_params:
+                self.setup_params = self.design_params["Setup"]
+                logger.info(f"加载Setup参数: {self.setup_params}")
+            else:
+                self.setup_params = {}
             
             #应用子组件参数（Slot, Winding, Pole等）
             self._apply_subcomponent_parameters()
@@ -236,14 +244,33 @@ class RMxprtDesigner:
         
         Args:
             setup_name: 设置名称
-            **kwargs: 其他设置参数
+            **kwargs: 其他设置参数（将覆盖从JSON加载的Setup参数）
             
         Returns:
             bool: 是否成功创建
         """
         try:
             logger.info(f"创建分析设置: {setup_name}")
-            setup = self.app.create_setup(name=setup_name, **kwargs)
+            
+            # 合并Setup参数：优先使用kwargs，其次使用从JSON加载的参数
+            setup_kwargs = {}
+            
+            # 首先添加从JSON加载的Setup参数
+            if hasattr(self, 'setup_params') and self.setup_params:
+                for key, value in self.setup_params.items():
+                    setup_kwargs[key] = value
+                    logger.debug(f"从JSON加载Setup参数: {key} = {value}")
+            
+            # 然后添加传入的kwargs参数（覆盖JSON参数）
+            setup_kwargs.update(kwargs)
+            
+            # 如果Enabled为False，则不创建Setup
+            if 'Enabled' in setup_kwargs and not setup_kwargs['Enabled']:
+                logger.info(f"Setup {setup_name} 被禁用，跳过创建")
+                return True
+            
+            logger.info(f"使用参数创建Setup: {setup_kwargs}")
+            setup = self.app.create_setup(name=setup_name, **setup_kwargs)
             setup.analyze()
             m2d = self.app.create_maxwell_design(setup_name)
             if m2d:
